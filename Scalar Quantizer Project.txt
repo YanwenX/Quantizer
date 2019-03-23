@@ -1,0 +1,367 @@
+// This project is a scalar quantizer (C++ implementation) of the pixels in grayscale images (the input image is in raw data
+// form), which applies the Lloyd-Max quantizer scheme.
+
+
+/*---------------------main function--------------------*/
+#include<fstream>
+#include<iostream>
+#include<string>
+#include<vector>
+#include"Quantizer.h"
+using namespace std;
+
+int main()
+{
+	ifstream inFile;
+	ofstream outFile;
+	char readNext;
+	vector<int> pixelValue;
+	long countLength = 0;
+
+	inFile.open("audio.dat", ios::binary);
+	while (inFile >> noskipws >> readNext) {
+		++countLength;
+		pixelValue.push_back(int(readNext));
+	}
+	inFile.close();
+
+	outFile.open("audio_vector.dat", ios::binary);
+	for (long i = 0; i < countLength; ++i) {
+		outFile << pixelValue[i] << '\n';
+	}
+	outFile.close();
+
+	/* chem */
+	inFile.open("chem.256", ios::binary);
+	while (inFile >> noskipws >> readNext) {
+		++countLength;
+		pixelValue.push_back(int(readNext));
+	}
+	inFile.close();
+
+	outFile.open("chem.dat", ios::binary);
+	for (long i = 0; i < countLength; ++i) {
+		outFile << pixelValue[i] << '\n';
+	}
+	outFile.close();
+
+	/* house */
+	pixelValue.clear();
+	inFile.open("house.256", ios::binary);
+	while (inFile >> noskipws >> readNext) {
+		pixelValue.push_back(int(readNext));
+	}
+	inFile.close();
+	
+	outFile.open("house.dat", ios::binary);
+	for (long i = 0; i < countLength; ++i) {
+		outFile << pixelValue[i] << '\n';
+	}
+	outFile.close();
+
+	/* moon */
+	pixelValue.clear();
+	inFile.open("moon.256", ios::binary);
+	while (inFile >> noskipws >> readNext) {
+		pixelValue.push_back(int(readNext));
+	}
+	inFile.close();
+
+	outFile.open("moon.dat", ios::binary);
+	for (long i = 0; i < countLength; ++i) {
+		outFile << pixelValue[i] << '\n';
+	}
+	outFile.close();
+
+	int ib = 8, qb_1 = 2, qb_2 = 4;
+	float eps = 0.001;
+	Quantizer quan_2bit(ib, qb_1), quan_4bit(ib, qb_2);
+
+	/* 2-bit quantizer training */
+	quan_2bit.loadHist("chem.256");
+	quan_2bit.loadHist("house.256");
+	quan_2bit.loadHist("moon.256");
+	quan_2bit.computeFreq();
+	quan_2bit.uniformInitial();
+	cout << "2-bit quantizer:" << endl;
+	quan_2bit.trainQuantizer(eps);
+	quan_2bit.printLevels();
+	cout << endl;
+
+	/* 4-bit quantizer training */
+	quan_4bit.loadHist("chem.256");
+	quan_4bit.loadHist("house.256");
+	quan_4bit.loadHist("moon.256");
+	quan_4bit.computeFreq();
+	quan_4bit.uniformInitial();
+	cout << "4-bit quantizer:" << endl;
+	quan_4bit.trainQuantizer(eps);
+	quan_4bit.printLevels();
+	cout << endl;
+
+	/* quantization */
+	cout << "chem_2bit:" << '\t';
+	quan_2bit.quantize("chem.256", "chem_2bit.dat");
+	cout << "house_2bit:" << '\t';
+	quan_2bit.quantize("house.256", "house_2bit.dat");
+	cout << "moon_2bit:" << '\t';
+	quan_2bit.quantize("moon.256", "moon_2bit.dat");
+	cout << "couple_2bit:" << '\t';
+	quan_2bit.quantize("couple.256", "couple_2bit.dat");
+	cout << "elaine_2bit:" << '\t';
+	quan_2bit.quantize("elaine.256", "elaine_2bit.dat");
+	cout << "f16_2bit:" << '\t';
+	quan_2bit.quantize("f16.256", "f16_2bit.dat");
+
+	cout << "chem_4bit:" << '\t';
+	quan_4bit.quantize("chem.256", "chem_4bit.dat");
+	cout << "house_4bit:" << '\t';
+	quan_4bit.quantize("house.256", "house_4bit.dat");
+	cout << "moon_4bit:" << '\t';
+	quan_4bit.quantize("moon.256", "moon_4bit.dat");
+	cout << "couple_4bit:" << '\t';
+	quan_4bit.quantize("couple.256", "couple_4bit.dat");
+	cout << "elaine_4bit:" << '\t';
+	quan_4bit.quantize("elaine.256", "elaine_4bit.dat");
+	cout << "f16_4bit:" << '\t';
+	quan_4bit.quantize("f16.256", "f16_4bit.dat");
+
+	return 0;
+}
+
+
+/*--------------------Quantizer header--------------------*/
+#ifndef QUANTIZER_H
+#define QUANTIZER_H
+
+#include<vector>
+#include<fstream>
+#include<string>
+using std::vector;
+using std::ifstream;
+using std::ofstream;
+using std::string;
+
+typedef struct PixelInfoEightBit {
+	int intensity;		// intensity value
+	long count;			// # of pixels with a certain intensity
+	float freq;			// frequency of a certain intensity
+	PixelInfoEightBit(int I, long c, float f) : intensity(I), count(c), freq(f) {}
+}*PI8B;
+
+class Quantizer
+{
+protected:
+	vector<PI8B> pixelHist;			// histogram of the training set
+	ifstream inFile;
+	ofstream outFile;
+	int quanBit, intensityBit;		// # of bits for quantizer and the original image intensities
+	vector<float> intervalBound;	// quantization interval bounds
+	vector<float> reconstructLevel;	// reconstruction levels
+public:
+	Quantizer(int, int);			// constructor
+	void loadHist(string);			// load the histogram of the training set
+	void computeFreq();				// compute the frequency of each intensity value
+	void printHist();
+	void uniformInitial();			// initialize the quantizer uniformly
+	void trainQuantizer(float);
+	void printLevels();
+	void quantize(string, string);	// quantize the image using the trained quantizer
+};
+
+#endif	// QUANTIZER_H
+
+
+/*--------------------Quantizer implementation--------------------*/
+#include"Quantizer.h"
+#include<iostream>
+#include<cmath>
+using std::pow;
+using std::abs;
+using std::log10;
+using std::log2;
+using std::cout;
+using std::endl;
+using std::ios;
+using std::noskipws;
+
+Quantizer::Quantizer(int ib, int qb)
+{
+	intensityBit = ib;
+	quanBit = qb;
+	for (int i = 0; i < pow(2, ib); ++i) {
+		pixelHist.push_back(new PixelInfoEightBit(i, 0, 0));
+	}
+}
+
+void Quantizer::loadHist(string fileName)
+{
+	inFile.open(fileName, ios::binary);
+	
+	unsigned char readNext;
+	while (inFile >> noskipws >> readNext) {
+		++pixelHist[int(readNext)]->count;
+	}
+	
+	inFile.close();
+}
+
+void Quantizer::computeFreq()
+{
+	long sumCount = 0;
+	for (int i = 0; i < pixelHist.size(); ++i) {
+		sumCount += pixelHist[i]->count;
+	}
+	for (int i = 0; i < pixelHist.size(); ++i) {
+		pixelHist[i]->freq = float(pixelHist[i]->count) / sumCount;
+	}
+}
+
+void Quantizer::printHist()
+{
+	for (int i = 0; i < 256; ++i) {
+		cout << pixelHist[i]->intensity << '\t'
+			<< pixelHist[i]->count << '\t'
+			<< pixelHist[i]->freq << endl;
+	}
+}
+
+void Quantizer::uniformInitial()
+{
+	for (int i = 0; i <= pow(2, quanBit); ++i) {
+		intervalBound.push_back(i * pow(2, intensityBit) / pow(2, quanBit));
+	}
+}
+
+void Quantizer::trainQuantizer(float eps)
+{
+	float MSE_1 = 0, MSE_2 = 0;
+	/* initial r's */
+	for (int i = 0; i < pow(2, quanBit); ++i) {
+		float weightedMean = 0, freqSum = 0;
+		for (int j = intervalBound[i]; j < intervalBound[i + 1]; ++j) {
+			weightedMean += pixelHist[j]->intensity * pixelHist[j]->freq;
+			freqSum += pixelHist[j]->freq;
+		}
+		reconstructLevel.push_back(weightedMean / freqSum);
+	}
+
+	/* initial error */
+	for (int i = 0; i < pow(2, quanBit); ++i) {
+		float errorInOneLevel = 0;
+		for (int j = intervalBound[i]; j < intervalBound[i + 1]; ++j) {
+			errorInOneLevel += pixelHist[j]->freq *
+				pow((pixelHist[j]->intensity - reconstructLevel[i]), 2);
+		}
+		MSE_2 += errorInOneLevel;
+	}
+
+	/* iteration */
+	float PSNR;
+	long countIteration = 0;
+	cout << "epslon = " << eps << endl;
+	while (abs(MSE_1 - MSE_2) / MSE_2 >= eps) {
+		/* PSNR */
+		PSNR = 10 * log10(pow(pow(2, intensityBit) - 1, 2) / MSE_2);
+		cout << countIteration << '\t' << "PSNR = " << PSNR << endl;
+		/* count iteration */
+		++countIteration;
+
+		/* update t's */
+		for (int i = 1; i < pow(2, quanBit); ++i) {
+			intervalBound[i] = (reconstructLevel[i - 1] + reconstructLevel[i]) / 2;
+		}
+		/* update r's */
+		for (int i = 0; i < pow(2, quanBit); ++i) {
+			float weightedMean = 0, freqSum = 0;
+			for (int j = intervalBound[i]; j < intervalBound[i + 1]; ++j) {
+				weightedMean += pixelHist[j]->intensity * pixelHist[j]->freq;
+				freqSum += pixelHist[j]->freq;
+			}
+			reconstructLevel[i] = (weightedMean / freqSum);
+		}
+		/* update MSE */
+		MSE_1 = MSE_2;		// MSE_1 for the previous MSE
+		MSE_2 = 0;			// compute new MSE_2
+		for (int i = 0; i < pow(2, quanBit); ++i) {
+			float errorInOneLevel = 0;
+			for (int j = intervalBound[i]; j < intervalBound[i + 1]; ++j) {
+				errorInOneLevel += pixelHist[j]->freq *
+					pow((pixelHist[j]->intensity - reconstructLevel[i]), 2);
+			}
+			MSE_2 += errorInOneLevel;
+		}
+	}
+	cout << "Number of iterations: " << countIteration << endl;
+}
+
+void Quantizer::printLevels()
+{
+	for (int i = 0; i < intervalBound.size(); ++i) {
+		cout << intervalBound[i] << '\t';
+	}
+	cout << endl;
+	for (int i = 0; i < reconstructLevel.size(); ++i) {
+		cout << reconstructLevel[i] << '\t';
+	}
+	cout << endl;
+}
+
+void Quantizer::quantize(string inFileName, string outFileName)
+{
+	inFile.open(inFileName, ios::binary);
+	outFile.open(outFileName, ios::binary);
+	unsigned char readNext;
+
+	/* histogram for each image */
+	vector<PI8B> imageHist;
+	for (int i = 0; i < pow(2, intensityBit); ++i) {
+		imageHist.push_back(new PixelInfoEightBit(i, 0, 0));
+	}
+
+	/* quantized output and update the histogram */
+	long countPixel = 0;
+	while (inFile >> noskipws >> readNext) {
+		++countPixel;
+		++imageHist[int(readNext)]->count;
+		for (int i = 0; i < reconstructLevel.size(); ++i) {
+			if (int(readNext) >= intervalBound[i] && int(readNext) < intervalBound[i + 1]) {
+				outFile << reconstructLevel[i] << '\n';
+				break;
+			}
+		}
+	}
+
+	/* frequencies */
+	for (int i = 0; i < imageHist.size(); ++i) {
+		imageHist[i]->freq = float(imageHist[i]->count) / countPixel;
+	}
+
+	/* MSE */
+	float MSE = 0;
+	for (int i = 0; i < pow(2, quanBit); ++i) {
+		float errorInOneLevel = 0;
+		for (int j = intervalBound[i]; j < intervalBound[i + 1]; ++j) {
+			errorInOneLevel += imageHist[j]->freq *
+				pow((imageHist[j]->intensity - reconstructLevel[i]), 2);
+		}
+		MSE += errorInOneLevel;
+	}
+
+	/* PSNR */
+	float PSNR;
+	PSNR = 10 * log10(pow(pow(2, intensityBit) - 1, 2) / MSE);
+	cout << "PSNR = " << PSNR << '\t';
+
+	/* Entropy */
+	float Entropy = 0;
+	for (int i = 0; i < imageHist.size(); ++i) {
+		if (!imageHist[i]->freq) continue;
+		else
+			Entropy -= imageHist[i]->freq * log2(imageHist[i]->freq);
+	}
+	cout << "Entropy = " << Entropy << endl;
+
+	outFile.close();
+	inFile.close();
+}
